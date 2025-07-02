@@ -335,8 +335,13 @@ function New-MainForm {
     $txtOutput.Location = New-Object System.Drawing.Point(20, 375)
     $txtOutput.Size = New-Object System.Drawing.Size(450, 25)
     
-    # Store reference in script scope for event handlers
+    # Store all control references in script scope for reliable access from event handlers
     $script:OutputTextControl = $txtOutput
+    $script:EncryptionCheckControl = $chkEncryption
+    $script:PasswordTextControl = $txtPassword
+    $script:CompressButtonControl = $btnCompress
+    $script:CompressionNumericControl = $numCompression
+    $script:MainFormControl = $form
     
     $btnBrowseOutput = New-Object System.Windows.Forms.Button
     $btnBrowseOutput.Text = "Browse..."
@@ -652,28 +657,45 @@ function New-MainForm {
         }
     })
     
-    # Capture controls in closure variables for the compress button event handler
-    $outputTextBox = $txtOutput
-    $encryptionCheckBox = $chkEncryption
-    $passwordTextBox = $txtPassword
-    $compressButton = $btnCompress
-    $compressionNumeric = $numCompression
-    $mainForm = $form
-    
     $btnCompress.Add_Click({
         if ($script:SelectedFiles.Count -eq 0) {
             [System.Windows.Forms.MessageBox]::Show("Please select at least one file to compress.", "No Files Selected", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
             return
         }
         
-        if (-not $outputTextBox.Text -or $outputTextBox.Text.Trim() -eq "") {
-            [System.Windows.Forms.MessageBox]::Show("Please specify an output file path.", "No Output Path", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+        # Use script-scope control reference directly
+        $outputPathText = ""
+        if ($null -ne $script:OutputTextControl) {
+            try {
+                $outputPathText = $script:OutputTextControl.Text
+                if ($null -eq $outputPathText) { $outputPathText = "" }
+            }
+            catch {
+                $outputPathText = ""
+            }
+        }
+        
+        if ([string]::IsNullOrWhiteSpace($outputPathText)) {
+            # Debug: Show detailed information
+            $debugMsg = "Debug Info:`n"
+            $debugMsg += "script:OutputTextControl is null: $(if ($null -eq $script:OutputTextControl) { 'YES' } else { 'NO' })`n"
+            if ($null -ne $script:OutputTextControl) {
+                try {
+                    $debugMsg += "Control Type: $($script:OutputTextControl.GetType().Name)`n"
+                    $debugMsg += "Text Property: '$($script:OutputTextControl.Text)'`n"
+                    $debugMsg += "Text Length: $($script:OutputTextControl.Text.Length)`n"
+                }
+                catch {
+                    $debugMsg += "Error accessing Text property: $($_.Exception.Message)`n"
+                }
+            }
+            [System.Windows.Forms.MessageBox]::Show($debugMsg + "`nPlease specify an output file path.", "No Output Path", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
             return
         }
         
         # Check encryption settings
-        $useEncryption = $encryptionCheckBox.Checked
-        $password = if ($passwordTextBox.Text) { $passwordTextBox.Text } else { "" }
+        $useEncryption = if ($null -ne $script:EncryptionCheckControl) { $script:EncryptionCheckControl.Checked } else { $false }
+        $password = if ($null -ne $script:PasswordTextControl -and $null -ne $script:PasswordTextControl.Text) { $script:PasswordTextControl.Text } else { "" }
         
         if ($useEncryption -and ($password -eq "" -or $null -eq $password)) {
             [System.Windows.Forms.MessageBox]::Show("Please enter a password for encryption.", "No Password", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
@@ -694,8 +716,8 @@ function New-MainForm {
             return
         }
         
-        $outputPath = $outputTextBox.Text.Trim()
-        $compressionLevel = [int]$compressionNumeric.Value
+        $outputPath = $outputPathText.Trim()
+        $compressionLevel = if ($null -ne $script:CompressionNumericControl) { [int]$script:CompressionNumericControl.Value } else { 5 }
         
         # Create output directory if it doesn't exist
         try {
@@ -710,9 +732,13 @@ function New-MainForm {
         }
         
         # Disable the compress button during operation
-        $compressButton.Enabled = $false
-        $compressButton.Text = "Compressing..."
-        $mainForm.Refresh()
+        if ($null -ne $script:CompressButtonControl) {
+            $script:CompressButtonControl.Enabled = $false
+            $script:CompressButtonControl.Text = "Compressing..."
+        }
+        if ($null -ne $script:MainFormControl) {
+            $script:MainFormControl.Refresh()
+        }
         
         try {
             # Convert ArrayList to array for the function call
@@ -757,16 +783,17 @@ function New-MainForm {
             [System.Windows.Forms.MessageBox]::Show("Error: $($_.Exception.Message)", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
         }
         finally {
-            $compressButton.Enabled = $true
-            $compressButton.Text = "Create 7z Archive"
+            if ($null -ne $script:CompressButtonControl) {
+                $script:CompressButtonControl.Enabled = $true
+                $script:CompressButtonControl.Text = "Create 7z Archive"
+            }
         }
     })
     
-    # Capture form reference for exit button
-    $exitForm = $form
-    
     $btnExit.Add_Click({
-        $exitForm.Close()
+        if ($null -ne $script:MainFormControl) {
+            $script:MainFormControl.Close()
+        }
     })
     
     # Set initial output path if provided via parameter
