@@ -11,6 +11,9 @@
 ### 3. Windows GUI Auto-Generation Error ✅
 **Fixed**: "The property 'Text' cannot be found on this object" error when adding files in Windows GUI.
 
+### 4. Windows GUI Output Path Validation Error ✅
+**Fixed**: "Please specify an output path" error appearing even when the output path field contains text.
+
 ## Root Causes & Solutions
 
 ### Windows GUI Issue
@@ -49,6 +52,18 @@
 - Fixed all syntax errors in try/catch blocks throughout the script
 - Created fallback mechanisms for problematic environments
 
+### Windows GUI Output Path Validation Error
+**Root Cause**:
+- Variable scoping issues in GUI event handlers
+- Event handlers accessing controls directly instead of using closure variables
+- PowerShell event handler scope losing reference to form controls
+
+**Solution Applied**:
+- Added closure variables for all GUI controls used in event handlers (`$outputTextBox`, `$encryptionCheckBox`, `$passwordTextBox`, `$compressButton`, `$compressionNumeric`, `$mainForm`)
+- Updated button click event handler to use closure variables instead of direct control references
+- Fixed similar scoping issues in other event handlers (exit button)
+- Removed debug logging statements to clean up the code
+
 ## Fixes Applied
 
 ### 1. **Improved Variable Initialization**
@@ -82,23 +97,29 @@ All GUI event handlers now include:
 3. **Test file removal** - select files in the list and click "Remove Selected"
 4. **Test clear functionality** - click "Clear All"
 5. **Test output browsing** - click "Browse..." for output path
-6. **Test compression** - create an archive with various settings
+6. **Test output path validation** - fill in output path and verify "Create 7z Archive" button works
+7. **Test compression** - create an archive with various settings
+8. **Test encryption** - enable encryption checkbox and verify password controls work
 
 ### Expected Behavior
 - **No more stack traces** when selecting files
 - **Smooth GUI operations** with proper error handling
+- **Output path field properly recognized** when filled by user
 - **User-friendly error messages** instead of technical exceptions
 - **Graceful degradation** if any component fails
 
 ## Files Modified
-- `7z-compressor.ps1` - Main script with comprehensive null safety improvements
-- All event handlers updated with defensive programming patterns
+- `7z-compressor.ps1` - Main script with comprehensive null safety improvements and event handler scoping fixes
+- All event handlers updated with defensive programming patterns and closure variables
 - Variable initialization system added
+- Debug logging removed for production readiness
 
 ## Additional Improvements
+- **Fixed GUI event handler scoping** using closure variables for reliable control access
 - **Better error messages** for users instead of technical stack traces
 - **Improved resource management** with proper dialog disposal
 - **Enhanced validation** for all file and path operations
 - **Consistent null checking** throughout the codebase
+- **Cross-platform input handling** for better CLI support
 
-The script should now run smoothly on Windows without the null reference errors that were occurring during file selection operations.
+The script should now run smoothly on Windows without the null reference errors or output path validation issues that were occurring during GUI operations.

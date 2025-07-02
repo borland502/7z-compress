@@ -385,6 +385,40 @@ function New-MainForm {
     $script:PasswordTextControl = $txtPassword
     $script:ShowPasswordButtonControl = $btnShowPassword
     
+    # Event handlers - capture controls in closure variables for better scope access
+    $passwordLabel = $lblPassword
+    $passwordText = $txtPassword  
+    $showPasswordButton = $btnShowPassword
+    
+    $chkEncryption.Add_CheckedChanged({
+        try {
+            $isEnabled = $chkEncryption.Checked
+            
+            # Enable/disable password controls based on encryption checkbox
+            if ($null -ne $passwordLabel) {
+                $passwordLabel.Enabled = $isEnabled
+            }
+            
+            if ($null -ne $passwordText) {
+                $passwordText.Enabled = $isEnabled
+            }
+            
+            if ($null -ne $showPasswordButton) {
+                $showPasswordButton.Enabled = $isEnabled
+            }
+            
+            # Clear password when encryption is disabled
+            if (-not $isEnabled -and $null -ne $passwordText) {
+                $passwordText.Text = ""
+            }
+        }
+        catch {
+            # Show encryption toggle errors
+            Write-Host "Error: Could not update encryption controls: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    })
+    
+    # Create remaining button controls
     $btnCompress = New-Object System.Windows.Forms.Button
     $btnCompress.Text = "Create 7z Archive"
     $btnCompress.Location = New-Object System.Drawing.Point(400, 435)
@@ -397,47 +431,23 @@ function New-MainForm {
     $btnExit.Location = New-Object System.Drawing.Point(530, 435)
     $btnExit.Size = New-Object System.Drawing.Size(60, 35)
     
-    # Event handlers
-    $chkEncryption.Add_CheckedChanged({
-        try {
-            $isEnabled = $chkEncryption.Checked
-            
-            # Use script-scope control references
-            if ($null -ne $script:PasswordLabelControl) {
-                $script:PasswordLabelControl.Enabled = $isEnabled
-            }
-            if ($null -ne $script:PasswordTextControl) {
-                $script:PasswordTextControl.Enabled = $isEnabled
-            }
-            if ($null -ne $script:ShowPasswordButtonControl) {
-                $script:ShowPasswordButtonControl.Enabled = $isEnabled
-            }
-            
-            if (-not $isEnabled -and $null -ne $script:PasswordTextControl) {
-                $script:PasswordTextControl.Text = ""
-            }
-        }
-        catch {
-            # Ignore encryption toggle errors
-            Write-Host "Warning: Could not update encryption controls: $($_.Exception.Message)" -ForegroundColor Yellow
-        }
-    })
-    
     $btnShowPassword.Add_Click({
         try {
-            if ($null -ne $script:PasswordTextControl -and $null -ne $script:ShowPasswordButtonControl) {
-                if ($script:PasswordTextControl.UseSystemPasswordChar) {
-                    $script:PasswordTextControl.UseSystemPasswordChar = $false
-                    $script:ShowPasswordButtonControl.Text = "Hide"
+            if ($null -ne $passwordText -and $null -ne $showPasswordButton) {
+                if ($passwordText.UseSystemPasswordChar) {
+                    $passwordText.UseSystemPasswordChar = $false
+                    $showPasswordButton.Text = "Hide"
                 } else {
-                    $script:PasswordTextControl.UseSystemPasswordChar = $true
-                    $script:ShowPasswordButtonControl.Text = "Show"
+                    $passwordText.UseSystemPasswordChar = $true
+                    $showPasswordButton.Text = "Show"
                 }
+            } else {
+                Write-Host "Warning: Password controls not accessible" -ForegroundColor Yellow
             }
         }
         catch {
-            # Ignore password show/hide errors
-            Write-Host "Warning: Could not toggle password visibility: $($_.Exception.Message)" -ForegroundColor Yellow
+            # Show password show/hide errors
+            Write-Host "Error: Could not toggle password visibility: $($_.Exception.Message)" -ForegroundColor Red
         }
     })
     
@@ -642,20 +652,28 @@ function New-MainForm {
         }
     })
     
+    # Capture controls in closure variables for the compress button event handler
+    $outputTextBox = $txtOutput
+    $encryptionCheckBox = $chkEncryption
+    $passwordTextBox = $txtPassword
+    $compressButton = $btnCompress
+    $compressionNumeric = $numCompression
+    $mainForm = $form
+    
     $btnCompress.Add_Click({
         if ($script:SelectedFiles.Count -eq 0) {
             [System.Windows.Forms.MessageBox]::Show("Please select at least one file to compress.", "No Files Selected", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
             return
         }
         
-        if (-not $txtOutput.Text -or $txtOutput.Text.Trim() -eq "") {
+        if (-not $outputTextBox.Text -or $outputTextBox.Text.Trim() -eq "") {
             [System.Windows.Forms.MessageBox]::Show("Please specify an output file path.", "No Output Path", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
             return
         }
         
         # Check encryption settings
-        $useEncryption = $chkEncryption.Checked
-        $password = if ($txtPassword.Text) { $txtPassword.Text } else { "" }
+        $useEncryption = $encryptionCheckBox.Checked
+        $password = if ($passwordTextBox.Text) { $passwordTextBox.Text } else { "" }
         
         if ($useEncryption -and ($password -eq "" -or $null -eq $password)) {
             [System.Windows.Forms.MessageBox]::Show("Please enter a password for encryption.", "No Password", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
@@ -676,8 +694,8 @@ function New-MainForm {
             return
         }
         
-        $outputPath = $txtOutput.Text.Trim()
-        $compressionLevel = [int]$numCompression.Value
+        $outputPath = $outputTextBox.Text.Trim()
+        $compressionLevel = [int]$compressionNumeric.Value
         
         # Create output directory if it doesn't exist
         try {
@@ -692,9 +710,9 @@ function New-MainForm {
         }
         
         # Disable the compress button during operation
-        $btnCompress.Enabled = $false
-        $btnCompress.Text = "Compressing..."
-        $form.Refresh()
+        $compressButton.Enabled = $false
+        $compressButton.Text = "Compressing..."
+        $mainForm.Refresh()
         
         try {
             # Convert ArrayList to array for the function call
@@ -739,13 +757,16 @@ function New-MainForm {
             [System.Windows.Forms.MessageBox]::Show("Error: $($_.Exception.Message)", "Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
         }
         finally {
-            $btnCompress.Enabled = $true
-            $btnCompress.Text = "Create 7z Archive"
+            $compressButton.Enabled = $true
+            $compressButton.Text = "Create 7z Archive"
         }
     })
     
+    # Capture form reference for exit button
+    $exitForm = $form
+    
     $btnExit.Add_Click({
-        $form.Close()
+        $exitForm.Close()
     })
     
     # Set initial output path if provided via parameter

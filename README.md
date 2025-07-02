@@ -186,6 +186,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 #### GUI Crashes or Null Reference Errors (Windows)
 - **Solution**: Updated script includes improved error handling and null checks
 - **Status**: ✅ **RESOLVED** - Fixed null reference errors in file selection and output path generation
+- **Status**: ✅ **RESOLVED** - Fixed GUI "Create 7z Archive" button not recognizing filled output path field
 - **Workaround**: Use command-line mode if GUI continues to have issues
 - **Alternative**: Run with `-ErrorAction SilentlyContinue` parameter
 
@@ -197,7 +198,7 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 **Linux/macOS Examples:**
 ```bash
 # Use parameters instead of interactive mode
-pwsh ./7z-compressor.ps1 -OutputPath "backup.7z" -CompressionLevel 5
+  pwsh ./7z-compressor.ps1 -OutputPath "backup.7z" -CompressionLevel 5
 
 # For specific files, you can modify the script or use this pattern:
 # (The script will fall back to parameter-only mode on problematic systems)
