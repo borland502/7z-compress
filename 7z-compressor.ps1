@@ -48,6 +48,8 @@ $script:OutputFile = ""
 $script:GuiAvailable = $false
 $script:EncryptionEnabled = if ($EnableEncryption) { $true } else { $false }
 $script:EncryptionPassword = if ($EncryptionKey) { $EncryptionKey } else { "" }
+$script:ListFilesControl = $null
+$script:OutputTextControl = $null
 
 # Function to safely read user input (cross-platform compatible)
 function Read-UserInput {
@@ -303,6 +305,9 @@ function New-MainForm {
     $listFiles.Size = New-Object System.Drawing.Size(550, 200)
     $listFiles.SelectionMode = "MultiExtended"
     
+    # Store reference in script scope for event handlers
+    $script:ListFilesControl = $listFiles
+    
     $btnAddFiles = New-Object System.Windows.Forms.Button
     $btnAddFiles.Text = "Add Files"
     $btnAddFiles.Location = New-Object System.Drawing.Point(20, 300)
@@ -326,6 +331,9 @@ function New-MainForm {
     $txtOutput = New-Object System.Windows.Forms.TextBox
     $txtOutput.Location = New-Object System.Drawing.Point(20, 375)
     $txtOutput.Size = New-Object System.Drawing.Size(450, 25)
+    
+    # Store reference in script scope for event handlers
+    $script:OutputTextControl = $txtOutput
     
     $btnBrowseOutput = New-Object System.Windows.Forms.Button
     $btnBrowseOutput.Text = "Browse..."
@@ -428,20 +436,32 @@ function New-MainForm {
                         if ($null -ne $file -and $file.Trim() -ne "" -and (Test-Path $file)) {
                             if ($script:SelectedFiles -notcontains $file) {
                                 [void]$script:SelectedFiles.Add($file)
-                                if ($null -ne $listFiles.Items) {
-                                    [void]$listFiles.Items.Add($file)
+                                # Add to the listbox using script-scope reference
+                                try {
+                                    if ($null -ne $script:ListFilesControl -and $null -ne $script:ListFilesControl.Items) {
+                                        [void]$script:ListFilesControl.Items.Add($file)
+                                        Write-Host "Added file to list: $file" -ForegroundColor Green
+                                    } else {
+                                        Write-Host "Warning: ListBox control not accessible" -ForegroundColor Yellow
+                                    }
+                                } catch {
+                                    Write-Host "Error adding file to listbox: $($_.Exception.Message)" -ForegroundColor Red
                                 }
+                            } else {
+                                Write-Host "File already in list: $file" -ForegroundColor Yellow
                             }
+                        } else {
+                            Write-Host "File not found or invalid: $file" -ForegroundColor Red
                         }
                     }
                     
                     # Auto-generate output filename if not set
                     if ($script:SelectedFiles.Count -gt 0) {
                         try {
-                            # Check if txtOutput control is accessible and its Text property is empty
-                            if ($null -ne $txtOutput -and 
-                                $null -ne $txtOutput.Text -and 
-                                $txtOutput.Text.Trim() -eq "") {
+                            # Check if output text control is accessible and its Text property is empty
+                            if ($null -ne $script:OutputTextControl -and 
+                                $null -ne $script:OutputTextControl.Text -and 
+                                $script:OutputTextControl.Text.Trim() -eq "") {
                                 
                                 $firstFile = $script:SelectedFiles[0]
                                 if ($null -ne $firstFile -and (Test-Path $firstFile)) {
@@ -459,7 +479,8 @@ function New-MainForm {
                                     if ($null -ne $directory -and $directory.Trim() -ne "") {
                                         $suggestedName = Join-Path $directory "$baseName.7z"
                                         try {
-                                            $txtOutput.Text = $suggestedName
+                                            $script:OutputTextControl.Text = $suggestedName
+                                            Write-Host "Auto-generated output path: $suggestedName" -ForegroundColor Cyan
                                         }
                                         catch {
                                             # If setting the text fails, ignore silently
@@ -501,20 +522,20 @@ function New-MainForm {
                 $script:SelectedFiles = New-Object System.Collections.ArrayList
             }
             
-            if ($null -eq $listFiles.SelectedIndices -or $listFiles.SelectedIndices.Count -eq 0) {
+            if ($null -eq $script:ListFilesControl.SelectedIndices -or $script:ListFilesControl.SelectedIndices.Count -eq 0) {
                 return
             }
             
-            $selectedIndices = @($listFiles.SelectedIndices)
+            $selectedIndices = @($script:ListFilesControl.SelectedIndices)
             for ($i = $selectedIndices.Count - 1; $i -ge 0; $i--) {
                 $index = $selectedIndices[$i]
-                if ($index -ge 0 -and $index -lt $listFiles.Items.Count) {
-                    $fileToRemove = $listFiles.Items[$index]
+                if ($index -ge 0 -and $index -lt $script:ListFilesControl.Items.Count) {
+                    $fileToRemove = $script:ListFilesControl.Items[$index]
                     if ($null -ne $fileToRemove) {
                         # Remove from ArrayList
                         [void]$script:SelectedFiles.Remove($fileToRemove.ToString())
                         # Remove from ListBox
-                        $listFiles.Items.RemoveAt($index)
+                        $script:ListFilesControl.Items.RemoveAt($index)
                     }
                 }
             }
@@ -534,12 +555,12 @@ function New-MainForm {
                 $script:SelectedFiles.Clear()
             }
             
-            if ($null -ne $listFiles.Items) {
-                $listFiles.Items.Clear()
+            if ($null -ne $script:ListFilesControl.Items) {
+                $script:ListFilesControl.Items.Clear()
             }
             
-            if ($null -ne $txtOutput) {
-                $txtOutput.Text = ""
+            if ($null -ne $script:OutputTextControl) {
+                $script:OutputTextControl.Text = ""
             }
         }
         catch {
@@ -568,8 +589,8 @@ function New-MainForm {
             $dialogResult = $saveFileDialog.ShowDialog()
             if ($dialogResult -eq [System.Windows.Forms.DialogResult]::OK) {
                 if ($null -ne $saveFileDialog.FileName -and $saveFileDialog.FileName.Trim() -ne "") {
-                    if ($null -ne $txtOutput) {
-                        $txtOutput.Text = $saveFileDialog.FileName
+                    if ($null -ne $script:OutputTextControl) {
+                        $script:OutputTextControl.Text = $saveFileDialog.FileName
                     }
                 }
             }
