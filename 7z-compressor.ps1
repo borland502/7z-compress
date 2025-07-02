@@ -335,14 +335,6 @@ function New-MainForm {
     $txtOutput.Location = New-Object System.Drawing.Point(20, 375)
     $txtOutput.Size = New-Object System.Drawing.Size(450, 25)
     
-    # Store all control references in script scope for reliable access from event handlers
-    $script:OutputTextControl = $txtOutput
-    $script:EncryptionCheckControl = $chkEncryption
-    $script:PasswordTextControl = $txtPassword
-    $script:CompressButtonControl = $btnCompress
-    $script:CompressionNumericControl = $numCompression
-    $script:MainFormControl = $form
-    
     $btnBrowseOutput = New-Object System.Windows.Forms.Button
     $btnBrowseOutput.Text = "Browse..."
     $btnBrowseOutput.Location = New-Object System.Drawing.Point(480, 374)
@@ -385,36 +377,26 @@ function New-MainForm {
     $btnShowPassword.Size = New-Object System.Drawing.Size(50, 27)
     $btnShowPassword.Enabled = $script:EncryptionEnabled
     
-    # Store password control references in script scope for event handlers
-    $script:PasswordLabelControl = $lblPassword
-    $script:PasswordTextControl = $txtPassword
-    $script:ShowPasswordButtonControl = $btnShowPassword
-    
-    # Event handlers - capture controls in closure variables for better scope access
-    $passwordLabel = $lblPassword
-    $passwordText = $txtPassword  
-    $showPasswordButton = $btnShowPassword
-    
     $chkEncryption.Add_CheckedChanged({
         try {
-            $isEnabled = $chkEncryption.Checked
+            $isEnabled = if ($null -ne $script:EncryptionCheckControl) { $script:EncryptionCheckControl.Checked } else { $false }
             
             # Enable/disable password controls based on encryption checkbox
-            if ($null -ne $passwordLabel) {
-                $passwordLabel.Enabled = $isEnabled
+            if ($null -ne $script:PasswordLabelControl) {
+                $script:PasswordLabelControl.Enabled = $isEnabled
             }
             
-            if ($null -ne $passwordText) {
-                $passwordText.Enabled = $isEnabled
+            if ($null -ne $script:PasswordTextControl) {
+                $script:PasswordTextControl.Enabled = $isEnabled
             }
             
-            if ($null -ne $showPasswordButton) {
-                $showPasswordButton.Enabled = $isEnabled
+            if ($null -ne $script:ShowPasswordButtonControl) {
+                $script:ShowPasswordButtonControl.Enabled = $isEnabled
             }
             
             # Clear password when encryption is disabled
-            if (-not $isEnabled -and $null -ne $passwordText) {
-                $passwordText.Text = ""
+            if (-not $isEnabled -and $null -ne $script:PasswordTextControl) {
+                $script:PasswordTextControl.Text = ""
             }
         }
         catch {
@@ -436,15 +418,25 @@ function New-MainForm {
     $btnExit.Location = New-Object System.Drawing.Point(530, 435)
     $btnExit.Size = New-Object System.Drawing.Size(60, 35)
     
+    # Store all control references in script scope for reliable access from event handlers
+    $script:OutputTextControl = $txtOutput
+    $script:EncryptionCheckControl = $chkEncryption
+    $script:PasswordLabelControl = $lblPassword
+    $script:PasswordTextControl = $txtPassword
+    $script:ShowPasswordButtonControl = $btnShowPassword
+    $script:CompressButtonControl = $btnCompress
+    $script:CompressionNumericControl = $numCompression
+    $script:MainFormControl = $form
+    
     $btnShowPassword.Add_Click({
         try {
-            if ($null -ne $passwordText -and $null -ne $showPasswordButton) {
-                if ($passwordText.UseSystemPasswordChar) {
-                    $passwordText.UseSystemPasswordChar = $false
-                    $showPasswordButton.Text = "Hide"
+            if ($null -ne $script:PasswordTextControl -and $null -ne $script:ShowPasswordButtonControl) {
+                if ($script:PasswordTextControl.UseSystemPasswordChar) {
+                    $script:PasswordTextControl.UseSystemPasswordChar = $false
+                    $script:ShowPasswordButtonControl.Text = "Hide"
                 } else {
-                    $passwordText.UseSystemPasswordChar = $true
-                    $showPasswordButton.Text = "Show"
+                    $script:PasswordTextControl.UseSystemPasswordChar = $true
+                    $script:ShowPasswordButtonControl.Text = "Show"
                 }
             } else {
                 Write-Host "Warning: Password controls not accessible" -ForegroundColor Yellow
@@ -676,20 +668,7 @@ function New-MainForm {
         }
         
         if ([string]::IsNullOrWhiteSpace($outputPathText)) {
-            # Debug: Show detailed information
-            $debugMsg = "Debug Info:`n"
-            $debugMsg += "script:OutputTextControl is null: $(if ($null -eq $script:OutputTextControl) { 'YES' } else { 'NO' })`n"
-            if ($null -ne $script:OutputTextControl) {
-                try {
-                    $debugMsg += "Control Type: $($script:OutputTextControl.GetType().Name)`n"
-                    $debugMsg += "Text Property: '$($script:OutputTextControl.Text)'`n"
-                    $debugMsg += "Text Length: $($script:OutputTextControl.Text.Length)`n"
-                }
-                catch {
-                    $debugMsg += "Error accessing Text property: $($_.Exception.Message)`n"
-                }
-            }
-            [System.Windows.Forms.MessageBox]::Show($debugMsg + "`nPlease specify an output file path.", "No Output Path", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+            [System.Windows.Forms.MessageBox]::Show("Please specify an output file path.", "No Output Path", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
             return
         }
         

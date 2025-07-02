@@ -122,4 +122,13 @@ All GUI event handlers now include:
 - **Consistent null checking** throughout the codebase
 - **Cross-platform input handling** for better CLI support
 
+**✅ CONFIRMED RESOLVED**: Successfully tested on Windows - archive creation works correctly with GUI output path validation.
+
+**Test Results**:
+- GUI properly recognizes filled output path field
+- Archive creation proceeds without "Please specify an output path" error
+- Successful compression of 5 files (12 MiB) into 11 MiB 7z archive
+- Command executed: `7z.exe a -t7z -mx5 "archive.7z" [multiple files]`
+- Result: "Everything is Ok" - Archive created successfully
+
 The script should now run smoothly on Windows without the null reference errors or output path validation issues that were occurring during GUI operations.
