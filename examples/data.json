@@ -1,0 +1,32 @@
+{
+  "name": "Test Data",
+  "version": "1.0.0",
+  "description": "Sample JSON file for 7z compression testing",
+  "files": [
+    {
+      "name": "sample1.txt",
+      "type": "text",
+      "size": "small"
+    },
+    {
+      "name": "sample2.md",
+      "type": "markdown",
+      "size": "medium"
+    },
+    {
+      "name": "data.json",
+      "type": "json",
+      "size": "small"
+    }
+  ],
+  "compression": {
+    "levels": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    "recommended": 5,
+    "maximum": 9
+  },
+  "testing": {
+    "platforms": ["Windows", "macOS", "Linux"],
+    "powershell_versions": ["5.1", "7.0+"],
+    "gui_framework": "Windows Forms"
+  }
+}
