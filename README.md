@@ -188,6 +188,20 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 - **Workaround**: Use command-line mode if GUI continues to have issues
 - **Alternative**: Run with `-ErrorAction SilentlyContinue` parameter
 
+#### Command-Line Mode Hangs (Linux/macOS)
+- **Issue**: Some Linux systems have issues with PowerShell interactive input
+- **Solution**: Use command-line parameters instead of interactive mode
+- **Workaround**: Pre-specify files and options via parameters
+
+**Linux/macOS Examples:**
+```bash
+# Use parameters instead of interactive mode
+pwsh ./7z-compressor.ps1 -OutputPath "backup.7z" -CompressionLevel 5
+
+# For specific files, you can modify the script or use this pattern:
+# (The script will fall back to parameter-only mode on problematic systems)
+```
+
 #### GUI Not Appearing
 - **Windows**: GUI should work with Windows Forms
 - **macOS/Linux**: GUI not supported - automatically switches to command-line mode

@@ -36,15 +36,90 @@ param(
     [string]$EncryptionKey = "",
     
     [Parameter(HelpMessage = "Enable encryption")]
-    [switch]$EnableEncryption
+    [switch]$EnableEncryption,
+    
+    [Parameter(HelpMessage = "Input files to compress", ValueFromRemainingArguments = $true)]
+    [string[]]$InputFiles = @()
 )
 
 # Global variables
-$script:SelectedFiles = @()
+$script:SelectedFiles = New-Object System.Collections.ArrayList
 $script:OutputFile = ""
 $script:GuiAvailable = $false
 $script:EncryptionEnabled = if ($EnableEncryption) { $true } else { $false }
 $script:EncryptionPassword = if ($EncryptionKey) { $EncryptionKey } else { "" }
+
+# Function to safely read user input (cross-platform compatible)
+function Read-UserInput {
+    param(
+        [string]$Prompt = "Input",
+        [switch]$AsSecureString
+    )
+    
+    try {
+        if ($AsSecureString) {
+            # For secure strings, we still need to use Read-Host
+            return Read-Host $Prompt -AsSecureString
+        }
+        
+        # For regular input, use a more robust approach
+        Write-Host "$Prompt`: " -NoNewline -ForegroundColor Yellow
+        
+        # Try different input methods based on platform
+        if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
+            # Windows - use standard Read-Host
+            return Read-Host
+        } else {
+            # Linux/macOS - use System.Console directly to avoid PowerShell Read-Host issues
+            [System.Console]::Out.Flush()
+            $input = [System.Console]::ReadLine()
+            return $input
+        }
+    }
+    catch {
+        # Ultimate fallback - try to read from stdin directly
+        Write-Host "Input: " -NoNewline -ForegroundColor Yellow
+        try {
+            $input = [System.Console]::ReadLine()
+            return $input
+        }
+        catch {
+            # If all else fails, return empty string
+            Write-Host "Error reading input, using empty string" -ForegroundColor Red
+            return ""
+        }
+    }
+}
+
+# Safer input function with timeout protection
+function Read-UserInputSafe {
+    param(
+        [string]$Prompt = "Input",
+        [int]$TimeoutSeconds = 30
+    )
+    
+    try {
+        Write-Host "$Prompt`: " -NoNewline -ForegroundColor Yellow
+        [System.Console]::Out.Flush()
+        # Use Console.ReadLine which is more reliable on Linux
+        $input = [System.Console]::ReadLine()
+        return $input
+    }
+    catch {
+        Write-Host "`nInput error, using empty string" -ForegroundColor Red
+        return ""
+    }
+}
+
+# Initialize variables function
+function Initialize-ScriptVariables {
+    if ($null -eq $script:SelectedFiles) {
+        $script:SelectedFiles = New-Object System.Collections.ArrayList
+    }
+    if ($null -eq $script:OutputFile) {
+        $script:OutputFile = ""
+    }
+}
 
 # Function to test GUI availability
 function Test-GuiSupport {
@@ -329,81 +404,177 @@ function New-MainForm {
     })
     
     $btnAddFiles.Add_Click({
-        $openFileDialog = New-Object System.Windows.Forms.OpenFileDialog
-        $openFileDialog.Title = "Select Files to Compress"
-        $openFileDialog.Filter = "All Files (*.*)|*.*"
-        $openFileDialog.Multiselect = $true
-        
-        if ($openFileDialog.ShowDialog() -eq "OK") {
-            foreach ($file in $openFileDialog.FileNames) {
-                if ($file -and ($script:SelectedFiles -notcontains $file)) {
-                    $script:SelectedFiles += $file
-                    $listFiles.Items.Add($file)
-                }
+        try {
+            # Ensure script variables are initialized
+            if ($null -eq $script:SelectedFiles) {
+                $script:SelectedFiles = New-Object System.Collections.ArrayList
             }
             
-            # Auto-generate output filename if not set
-            if ((-not $txtOutput.Text -or $txtOutput.Text.Trim() -eq "") -and $script:SelectedFiles.Count -gt 0) {
-                try {
-                    $firstFile = $script:SelectedFiles[0]
-                    $directory = [System.IO.Path]::GetDirectoryName($firstFile)
-                    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($firstFile)
-                    if ($script:SelectedFiles.Count -gt 1) {
-                        $baseName = "archive"
+            $openFileDialog = New-Object System.Windows.Forms.OpenFileDialog
+            if ($null -eq $openFileDialog) {
+                throw "Failed to create file dialog"
+            }
+            
+            $openFileDialog.Title = "Select Files to Compress"
+            $openFileDialog.Filter = "All Files (*.*)|*.*"
+            $openFileDialog.Multiselect = $true
+            $openFileDialog.CheckFileExists = $true
+            $openFileDialog.CheckPathExists = $true
+            
+            $dialogResult = $openFileDialog.ShowDialog()
+            if ($dialogResult -eq [System.Windows.Forms.DialogResult]::OK) {
+                if ($null -ne $openFileDialog.FileNames -and $openFileDialog.FileNames.Count -gt 0) {
+                    foreach ($file in $openFileDialog.FileNames) {
+                        if ($null -ne $file -and $file.Trim() -ne "" -and (Test-Path $file)) {
+                            if ($script:SelectedFiles -notcontains $file) {
+                                [void]$script:SelectedFiles.Add($file)
+                                if ($null -ne $listFiles.Items) {
+                                    [void]$listFiles.Items.Add($file)
+                                }
+                            }
+                        }
                     }
-                    if ($directory) {
-                        $suggestedName = Join-Path $directory "$baseName.7z"
-                        $txtOutput.Text = $suggestedName
+                    
+                    # Auto-generate output filename if not set
+                    if (($null -eq $txtOutput.Text -or $txtOutput.Text.Trim() -eq "") -and $script:SelectedFiles.Count -gt 0) {
+                        try {
+                            $firstFile = $script:SelectedFiles[0]
+                            if ($null -ne $firstFile -and (Test-Path $firstFile)) {
+                                $directory = [System.IO.Path]::GetDirectoryName($firstFile)
+                                $baseName = [System.IO.Path]::GetFileNameWithoutExtension($firstFile)
+                                
+                                if ($null -eq $baseName -or $baseName.Trim() -eq "") {
+                                    $baseName = "archive"
+                                }
+                                
+                                if ($script:SelectedFiles.Count -gt 1) {
+                                    $baseName = "archive"
+                                }
+                                
+                                if ($null -ne $directory -and $directory.Trim() -ne "") {
+                                    $suggestedName = Join-Path $directory "$baseName.7z"
+                                    $txtOutput.Text = $suggestedName
+                                }
+                            }
+                        }
+                        catch {
+                            # If path operations fail, just continue without auto-generating
+                            Write-Host "Warning: Could not auto-generate output filename: $($_.Exception.Message)" -ForegroundColor Yellow
+                        }
                     }
                 }
+            }
+        }
+        catch {
+            $errorMsg = if ($null -ne $_.Exception.Message) { $_.Exception.Message } else { "Unknown error occurred" }
+            [System.Windows.Forms.MessageBox]::Show("Error selecting files: $errorMsg", "File Selection Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        }
+        finally {
+            # Ensure dialog is disposed
+            if ($null -ne $openFileDialog) {
+                try {
+                    $openFileDialog.Dispose()
+                }
                 catch {
-                    # If path operations fail, just continue without auto-generating
-                    Write-Host "Warning: Could not auto-generate output filename" -ForegroundColor Yellow
+                    # Ignore disposal errors
                 }
             }
         }
     })
     
     $btnRemoveFiles.Add_Click({
-        if ($listFiles.SelectedIndices.Count -eq 0) {
-            return
-        }
-        
-        $selectedIndices = @($listFiles.SelectedIndices)
-        for ($i = $selectedIndices.Count - 1; $i -ge 0; $i--) {
-            $index = $selectedIndices[$i]
-            if ($index -ge 0 -and $index -lt $listFiles.Items.Count) {
-                $fileToRemove = $listFiles.Items[$index]
-                if ($fileToRemove) {
-                    $script:SelectedFiles = $script:SelectedFiles | Where-Object { $_ -ne $fileToRemove }
-                    $listFiles.Items.RemoveAt($index)
+        try {
+            # Ensure script variables are initialized
+            if ($null -eq $script:SelectedFiles) {
+                $script:SelectedFiles = New-Object System.Collections.ArrayList
+            }
+            
+            if ($null -eq $listFiles.SelectedIndices -or $listFiles.SelectedIndices.Count -eq 0) {
+                return
+            }
+            
+            $selectedIndices = @($listFiles.SelectedIndices)
+            for ($i = $selectedIndices.Count - 1; $i -ge 0; $i--) {
+                $index = $selectedIndices[$i]
+                if ($index -ge 0 -and $index -lt $listFiles.Items.Count) {
+                    $fileToRemove = $listFiles.Items[$index]
+                    if ($null -ne $fileToRemove) {
+                        # Remove from ArrayList
+                        [void]$script:SelectedFiles.Remove($fileToRemove.ToString())
+                        # Remove from ListBox
+                        $listFiles.Items.RemoveAt($index)
+                    }
                 }
             }
+        }
+        catch {
+            $errorMsg = if ($null -ne $_.Exception.Message) { $_.Exception.Message } else { "Unknown error occurred" }
+            [System.Windows.Forms.MessageBox]::Show("Error removing files: $errorMsg", "File Removal Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
         }
     })
     
     $btnClearAll.Add_Click({
         try {
-            $script:SelectedFiles = @()
-            $listFiles.Items.Clear()
-            $txtOutput.Text = ""
+            # Ensure script variables are initialized
+            if ($null -eq $script:SelectedFiles) {
+                $script:SelectedFiles = New-Object System.Collections.ArrayList
+            } else {
+                $script:SelectedFiles.Clear()
+            }
+            
+            if ($null -ne $listFiles.Items) {
+                $listFiles.Items.Clear()
+            }
+            
+            if ($null -ne $txtOutput) {
+                $txtOutput.Text = ""
+            }
         }
         catch {
             # Fallback if clearing fails
-            $script:SelectedFiles = @()
-            Write-Host "Warning: Could not clear all items properly" -ForegroundColor Yellow
+            try {
+                $script:SelectedFiles = New-Object System.Collections.ArrayList
+                Write-Host "Warning: Had to reinitialize selected files list" -ForegroundColor Yellow
+            }
+            catch {
+                Write-Host "Warning: Could not clear all items properly" -ForegroundColor Yellow
+            }
         }
     })
     
     $btnBrowseOutput.Add_Click({
-        $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
-        $saveFileDialog.Title = "Save 7z Archive As"
-        $saveFileDialog.Filter = "7z Archives (*.7z)|*.7z|All Files (*.*)|*.*"
-        $saveFileDialog.DefaultExt = "7z"
-        
-        if ($saveFileDialog.ShowDialog() -eq "OK") {
-            if ($saveFileDialog.FileName) {
-                $txtOutput.Text = $saveFileDialog.FileName
+        try {
+            $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+            if ($null -eq $saveFileDialog) {
+                throw "Failed to create save dialog"
+            }
+            
+            $saveFileDialog.Title = "Save 7z Archive As"
+            $saveFileDialog.Filter = "7z Archives (*.7z)|*.7z|All Files (*.*)|*.*"
+            $saveFileDialog.DefaultExt = "7z"
+            
+            $dialogResult = $saveFileDialog.ShowDialog()
+            if ($dialogResult -eq [System.Windows.Forms.DialogResult]::OK) {
+                if ($null -ne $saveFileDialog.FileName -and $saveFileDialog.FileName.Trim() -ne "") {
+                    if ($null -ne $txtOutput) {
+                        $txtOutput.Text = $saveFileDialog.FileName
+                    }
+                }
+            }
+        }
+        catch {
+            $errorMsg = if ($null -ne $_.Exception.Message) { $_.Exception.Message } else { "Unknown error occurred" }
+            [System.Windows.Forms.MessageBox]::Show("Error browsing output location: $errorMsg", "Browse Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+        }
+        finally {
+            # Ensure dialog is disposed
+            if ($null -ne $saveFileDialog) {
+                try {
+                    $saveFileDialog.Dispose()
+                }
+                catch {
+                    # Ignore disposal errors
+                }
             }
         }
     })
@@ -423,7 +594,7 @@ function New-MainForm {
         $useEncryption = $chkEncryption.Checked
         $password = if ($txtPassword.Text) { $txtPassword.Text } else { "" }
         
-        if ($useEncryption -and ($password -eq "" -or $password -eq $null)) {
+        if ($useEncryption -and ($password -eq "" -or $null -eq $password)) {
             [System.Windows.Forms.MessageBox]::Show("Please enter a password for encryption.", "No Password", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
             return
         }
@@ -463,7 +634,14 @@ function New-MainForm {
         $form.Refresh()
         
         try {
-            $success = New-7zArchive -InputFiles $script:SelectedFiles -OutputPath $outputPath -CompressionLevel $compressionLevel -Password $password -Encrypt $useEncryption
+            # Convert ArrayList to array for the function call
+            $filesArray = if ($script:SelectedFiles -is [System.Collections.ArrayList]) {
+                $script:SelectedFiles.ToArray()
+            } else {
+                $script:SelectedFiles
+            }
+            
+            $success = New-7zArchive -InputFiles $filesArray -OutputPath $outputPath -CompressionLevel $compressionLevel -Password $password -Encrypt $useEncryption
             
             if ($success) {
                 $message = "Archive created successfully!`n`nOutput: $outputPath"
@@ -530,6 +708,104 @@ function Start-CommandLineMode {
     Write-Host "============================" -ForegroundColor Cyan
     Write-Host ""
     
+    # If files were provided as command-line arguments, use non-interactive mode
+    if ($InputFiles -and $InputFiles.Count -gt 0) {
+        Write-Host "Non-interactive mode (files provided as arguments)" -ForegroundColor Yellow
+        
+        # Validate input files
+        $validFiles = @()
+        foreach ($file in $InputFiles) {
+            if (Test-Path $file) {
+                $validFiles += (Resolve-Path $file).Path
+                Write-Host "Added: $file" -ForegroundColor Green
+            } else {
+                Write-Host "File not found: $file" -ForegroundColor Red
+            }
+        }
+        
+        if ($validFiles.Count -eq 0) {
+            Write-Host "No valid files found" -ForegroundColor Red
+            return
+        }
+        
+        # Auto-generate output path if not provided
+        if (-not $OutputPath) {
+            $firstFile = $validFiles[0]
+            $directory = [System.IO.Path]::GetDirectoryName($firstFile)
+            $baseName = if ($validFiles.Count -gt 1) { "archive" } else { [System.IO.Path]::GetFileNameWithoutExtension($firstFile) }
+            $OutputPath = Join-Path $directory "$baseName.7z"
+            Write-Host "Auto-generated output path: $OutputPath" -ForegroundColor Cyan
+        }
+        
+        # Show compression settings
+        Write-Host ""
+        Write-Host "Archive Settings:" -ForegroundColor Cyan
+        Write-Host "  Input files: $($validFiles.Count)" -ForegroundColor White
+        Write-Host "  Output: $OutputPath" -ForegroundColor White
+        Write-Host "  Compression level: $CompressionLevel" -ForegroundColor White
+        Write-Host "  Encryption: $(if ($script:EncryptionEnabled) { 'Enabled' } else { 'Disabled' })" -ForegroundColor White
+        
+        if ($script:EncryptionEnabled) {
+            if ($script:EncryptionPassword) {
+                Write-Host "  Password: Set via parameter" -ForegroundColor White
+            } else {
+                Write-Host "  Password: Not provided - archive will not be encrypted" -ForegroundColor Yellow
+                $script:EncryptionEnabled = $false
+            }
+        }
+        
+        Write-Host ""
+        Write-Host "Creating archive..." -ForegroundColor Yellow
+        
+        try {
+            $success = New-7zArchive -InputFiles $validFiles -OutputPath $OutputPath -CompressionLevel $CompressionLevel -Password $script:EncryptionPassword -Encrypt $script:EncryptionEnabled
+            
+            if ($success) {
+                Write-Host ""
+                Write-Host "Archive created successfully!" -ForegroundColor Green
+                Write-Host "Output: $OutputPath" -ForegroundColor Green
+                if ($script:EncryptionEnabled) {
+                    Write-Host "Archive is password protected" -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "Failed to create archive" -ForegroundColor Red
+            }
+        } catch {
+            Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+        }
+        
+        return
+    }
+    
+    # Check if we're in a non-interactive environment
+    $isInteractive = $true
+    try {
+        # Test if we can actually read input
+        if ($Host.UI.RawUI.KeyAvailable -eq $null) {
+            $isInteractive = $false
+        }
+    } catch {
+        $isInteractive = $false
+    }
+    
+    if (-not $isInteractive) {
+        Write-Host "Non-interactive environment detected." -ForegroundColor Yellow
+        Write-Host "Please use command-line parameters instead:" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Examples:" -ForegroundColor Cyan
+        Write-Host "  pwsh ./7z-compressor.ps1 -OutputPath 'archive.7z' file1.txt file2.txt" -ForegroundColor White
+        Write-Host "  pwsh ./7z-compressor.ps1 -CompressionLevel 9 *.txt" -ForegroundColor White
+        Write-Host "  pwsh ./7z-compressor.ps1 -EnableEncryption -EncryptionKey 'password123' file1.txt file2.txt" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Available parameters:" -ForegroundColor Cyan
+        Write-Host "  -OutputPath <path>        Output 7z file path" -ForegroundColor White
+        Write-Host "  -CompressionLevel <0-9>   Compression level" -ForegroundColor White
+        Write-Host "  -EnableEncryption         Enable password protection" -ForegroundColor White
+        Write-Host "  -EncryptionKey <password> Set encryption password" -ForegroundColor White
+        Write-Host "  <files...>                Files to compress" -ForegroundColor White
+        return
+    }
+    
     $inputFiles = @()
     $outputPath = $OutputPath
     $compressionLevel = $CompressionLevel
@@ -541,7 +817,13 @@ function Start-CommandLineMode {
         Write-Host "Output file: $outputPath" -ForegroundColor Green
     }
     
-    while ($true) {
+    # Interactive loop with timeout protection
+    $maxIterations = 100  # Prevent infinite loops
+    $iteration = 0
+    
+    while ($iteration -lt $maxIterations) {
+        $iteration++
+        
         Write-Host ""
         Write-Host "Current files selected: $($inputFiles.Count)" -ForegroundColor Yellow
         if ($inputFiles.Count -gt 0) {
@@ -567,27 +849,52 @@ function Start-CommandLineMode {
         }
         Write-Host ""
         
-        if ($useEncryption) {
-            $choice = Read-Host "Enter your choice (1-8)"
-        } else {
-            $choice = Read-Host "Enter your choice (1-7)"
+        # Use a safer input method
+        $choice = ""
+        try {
+            if ($useEncryption) {
+                $choice = Read-UserInputSafe "Enter your choice (1-8)"
+            } else {
+                $choice = Read-UserInputSafe "Enter your choice (1-7)"  
+            }
+        } catch {
+            Write-Host "Error reading input. Exiting..." -ForegroundColor Red
+            return
+        }
+        
+        if ($choice -eq "") {
+            Write-Host "Empty input received. Exiting..." -ForegroundColor Yellow
+            return
         }
         
         switch ($choice) {
             "1" {
                 Write-Host ""
                 Write-Host "Enter file paths (one per line, empty line to finish):" -ForegroundColor Yellow
-                while ($true) {
-                    $filePath = Read-Host "File path"
+                $fileInputCount = 0
+                while ($fileInputCount -lt 20) {  # Limit file inputs
+                    $fileInputCount++
+                    $filePath = ""
+                    try {
+                        $filePath = Read-UserInputSafe "File path (or press Enter to finish)"
+                    } catch {
+                        Write-Host "Error reading file path. Continuing..." -ForegroundColor Red
+                        break
+                    }
+                    
                     if (-not $filePath) { break }
                     
                     if (Test-Path $filePath) {
-                        $fullPath = (Resolve-Path $filePath).Path
-                        if ($inputFiles -notcontains $fullPath) {
-                            $inputFiles += $fullPath
-                            Write-Host "Added: $fullPath" -ForegroundColor Green
-                        } else {
-                            Write-Host "File already in list" -ForegroundColor Yellow
+                        try {
+                            $fullPath = (Resolve-Path $filePath).Path
+                            if ($inputFiles -notcontains $fullPath) {
+                                $inputFiles += $fullPath
+                                Write-Host "Added: $fullPath" -ForegroundColor Green
+                            } else {
+                                Write-Host "File already in list" -ForegroundColor Yellow
+                            }
+                        } catch {
+                            Write-Host "Error resolving path: $filePath" -ForegroundColor Red
                         }
                     } else {
                         Write-Host "File not found: $filePath" -ForegroundColor Red
@@ -596,11 +903,15 @@ function Start-CommandLineMode {
                 
                 # Auto-generate output path if not set
                 if (-not $outputPath -and $inputFiles.Count -gt 0) {
-                    $firstFile = $inputFiles[0]
-                    $directory = [System.IO.Path]::GetDirectoryName($firstFile)
-                    $baseName = if ($inputFiles.Count -gt 1) { "archive" } else { [System.IO.Path]::GetFileNameWithoutExtension($firstFile) }
-                    $outputPath = Join-Path $directory "$baseName.7z"
-                    Write-Host "Auto-generated output path: $outputPath" -ForegroundColor Cyan
+                    try {
+                        $firstFile = $inputFiles[0]
+                        $directory = [System.IO.Path]::GetDirectoryName($firstFile)
+                        $baseName = if ($inputFiles.Count -gt 1) { "archive" } else { [System.IO.Path]::GetFileNameWithoutExtension($firstFile) }
+                        $outputPath = Join-Path $directory "$baseName.7z"
+                        Write-Host "Auto-generated output path: $outputPath" -ForegroundColor Cyan
+                    } catch {
+                        Write-Host "Could not auto-generate output path" -ForegroundColor Yellow
+                    }
                 }
             }
             "2" {
@@ -610,7 +921,7 @@ function Start-CommandLineMode {
                 }
                 
                 Write-Host "Enter the number of the file to remove (1-$($inputFiles.Count)):" -ForegroundColor Yellow
-                $indexStr = Read-Host "File number"
+                $indexStr = Read-UserInputSafe "File number"
                 if ([int]::TryParse($indexStr, [ref]$null)) {
                     $index = [int]$indexStr - 1
                     if ($index -ge 0 -and $index -lt $inputFiles.Count) {
@@ -625,14 +936,14 @@ function Start-CommandLineMode {
                 }
             }
             "3" {
-                $newPath = Read-Host "Enter output path"
+                $newPath = Read-UserInputSafe "Enter output path"
                 if ($newPath) {
                     $outputPath = $newPath
                     Write-Host "Output path set to: $outputPath" -ForegroundColor Green
                 }
             }
             "4" {
-                $levelStr = Read-Host "Enter compression level (0-9)"
+                $levelStr = Read-UserInputSafe "Enter compression level (0-9)"
                 if ([int]::TryParse($levelStr, [ref]$null)) {
                     $level = [int]$levelStr
                     if ($level -ge 0 -and $level -le 9) {
@@ -655,9 +966,8 @@ function Start-CommandLineMode {
             }
             "6" {
                 if ($useEncryption) {
-                    Write-Host "Enter encryption password (input will be hidden):" -ForegroundColor Yellow
-                    $password = Read-Host "Password" -AsSecureString
-                    $password = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($password))
+                    Write-Host "Enter encryption password:" -ForegroundColor Yellow
+                    $password = Read-UserInputSafe "Password"
                     if ($password) {
                         Write-Host "Password set successfully" -ForegroundColor Green
                     } else {
@@ -691,7 +1001,7 @@ function Start-CommandLineMode {
                             Write-Host "Archive created successfully!" -ForegroundColor Green
                             Write-Host "Output: $outputPath" -ForegroundColor Green
                             
-                            $openFolder = Read-Host "Open output folder? (y/N)"
+                            $openFolder = Read-UserInputSafe "Open output folder? (y/N)"
                             if ($openFolder -eq "y" -or $openFolder -eq "Y") {
                                 $outputDir = [System.IO.Path]::GetDirectoryName($outputPath)
                                 if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
@@ -747,7 +1057,7 @@ function Start-CommandLineMode {
                             Write-Host "Output: $outputPath" -ForegroundColor Green
                             Write-Host "Archive is password protected" -ForegroundColor Yellow
                             
-                            $openFolder = Read-Host "Open output folder? (y/N)"
+                            $openFolder = Read-UserInputSafe "Open output folder? (y/N)"
                             if ($openFolder -eq "y" -or $openFolder -eq "Y") {
                                 $outputDir = [System.IO.Path]::GetDirectoryName($outputPath)
                                 if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
@@ -797,6 +1107,9 @@ function Main {
     Write-Host "7z File Compressor - Cross-Platform PowerShell Script" -ForegroundColor Cyan
     Write-Host "=====================================================" -ForegroundColor Cyan
     
+    # Initialize script variables
+    Initialize-ScriptVariables
+    
     # Test GUI availability first
     $guiSupported = Test-GuiSupport
     
@@ -812,6 +1125,9 @@ function Main {
         Write-Host "Starting GUI..." -ForegroundColor Yellow
         
         try {
+            # Re-initialize variables before creating form
+            Initialize-ScriptVariables
+            
             # Create and show the main form
             $form = New-MainForm
             [void]$form.ShowDialog()
