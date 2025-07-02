@@ -183,6 +183,11 @@ The script supports AES-256 encryption with the following security features:
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
+#### GUI Crashes or Null Reference Errors (Windows)
+- **Solution**: Updated script includes improved error handling and null checks
+- **Workaround**: Use command-line mode if GUI continues to have issues
+- **Alternative**: Run with `-ErrorAction SilentlyContinue` parameter
+
 #### GUI Not Appearing
 - **Windows**: GUI should work with Windows Forms
 - **macOS/Linux**: GUI not supported - automatically switches to command-line mode

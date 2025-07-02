@@ -43,8 +43,8 @@ param(
 $script:SelectedFiles = @()
 $script:OutputFile = ""
 $script:GuiAvailable = $false
-$script:EncryptionEnabled = $EnableEncryption
-$script:EncryptionPassword = $EncryptionKey
+$script:EncryptionEnabled = if ($EnableEncryption) { $true } else { $false }
+$script:EncryptionPassword = if ($EncryptionKey) { $EncryptionKey } else { "" }
 
 # Function to test GUI availability
 function Test-GuiSupport {
@@ -131,6 +131,15 @@ function New-7zArchive {
         [bool]$Encrypt = $false
     )
     
+    # Input validation
+    if (-not $InputFiles -or $InputFiles.Count -eq 0) {
+        throw "No input files specified"
+    }
+    
+    if (-not $OutputPath -or $OutputPath.Trim() -eq "") {
+        throw "No output path specified"
+    }
+    
     $7zPath = Get-7zPath
     if (-not $7zPath) {
         throw "7-Zip executable not found"
@@ -144,7 +153,7 @@ function New-7zArchive {
     )
     
     # Add encryption if enabled
-    if ($Encrypt -and $Password) {
+    if ($Encrypt -and $Password -and $Password.Trim() -ne "") {
         $arguments += "-p$Password"            # Password
         $arguments += "-mhe=on"                # Encrypt headers (hide file names)
         Write-Host "Encryption enabled with password protection" -ForegroundColor Yellow
@@ -152,17 +161,19 @@ function New-7zArchive {
         Write-Host "Warning: Encryption requested but no password provided" -ForegroundColor Yellow
     }
     
-    $arguments += "`"$OutputPath`""            # Output file (quoted for spaces)
+    $arguments += "`"$($OutputPath.Trim())`""  # Output file (quoted for spaces)
     
     # Add input files (quoted for spaces)
     foreach ($file in $InputFiles) {
-        $arguments += "`"$file`""
+        if ($file -and $file.Trim() -ne "") {
+            $arguments += "`"$($file.Trim())`""
+        }
     }
     
     try {
         Write-Host "Creating 7z archive..." -ForegroundColor Green
-        if ($Encrypt -and $Password) {
-            Write-Host "Command: $7zPath a -t7z -mx$CompressionLevel -p*** -mhe=on `"$OutputPath`" [files...]" -ForegroundColor Cyan
+        if ($Encrypt -and $Password -and $Password.Trim() -ne "") {
+            Write-Host "Command: $7zPath a -t7z -mx$CompressionLevel -p*** -mhe=on `"$($OutputPath.Trim())`" [files...]" -ForegroundColor Cyan
         } else {
             Write-Host "Command: $7zPath $($arguments -join ' ')" -ForegroundColor Cyan
         }
@@ -170,8 +181,8 @@ function New-7zArchive {
         $process = Start-Process -FilePath $7zPath -ArgumentList $arguments -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -eq 0) {
-            Write-Host "Archive created successfully: $OutputPath" -ForegroundColor Green
-            if ($Encrypt -and $Password) {
+            Write-Host "Archive created successfully: $($OutputPath.Trim())" -ForegroundColor Green
+            if ($Encrypt -and $Password -and $Password.Trim() -ne "") {
                 Write-Host "Archive is encrypted and password protected" -ForegroundColor Green
             }
             return $true
@@ -325,39 +336,63 @@ function New-MainForm {
         
         if ($openFileDialog.ShowDialog() -eq "OK") {
             foreach ($file in $openFileDialog.FileNames) {
-                if ($script:SelectedFiles -notcontains $file) {
+                if ($file -and ($script:SelectedFiles -notcontains $file)) {
                     $script:SelectedFiles += $file
                     $listFiles.Items.Add($file)
                 }
             }
             
             # Auto-generate output filename if not set
-            if (-not $txtOutput.Text -and $script:SelectedFiles.Count -gt 0) {
-                $firstFile = $script:SelectedFiles[0]
-                $directory = [System.IO.Path]::GetDirectoryName($firstFile)
-                $baseName = [System.IO.Path]::GetFileNameWithoutExtension($firstFile)
-                if ($script:SelectedFiles.Count -gt 1) {
-                    $baseName = "archive"
+            if ((-not $txtOutput.Text -or $txtOutput.Text.Trim() -eq "") -and $script:SelectedFiles.Count -gt 0) {
+                try {
+                    $firstFile = $script:SelectedFiles[0]
+                    $directory = [System.IO.Path]::GetDirectoryName($firstFile)
+                    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($firstFile)
+                    if ($script:SelectedFiles.Count -gt 1) {
+                        $baseName = "archive"
+                    }
+                    if ($directory) {
+                        $suggestedName = Join-Path $directory "$baseName.7z"
+                        $txtOutput.Text = $suggestedName
+                    }
                 }
-                $suggestedName = Join-Path $directory "$baseName.7z"
-                $txtOutput.Text = $suggestedName
+                catch {
+                    # If path operations fail, just continue without auto-generating
+                    Write-Host "Warning: Could not auto-generate output filename" -ForegroundColor Yellow
+                }
             }
         }
     })
     
     $btnRemoveFiles.Add_Click({
+        if ($listFiles.SelectedIndices.Count -eq 0) {
+            return
+        }
+        
         $selectedIndices = @($listFiles.SelectedIndices)
         for ($i = $selectedIndices.Count - 1; $i -ge 0; $i--) {
             $index = $selectedIndices[$i]
-            $script:SelectedFiles = $script:SelectedFiles | Where-Object { $_ -ne $listFiles.Items[$index] }
-            $listFiles.Items.RemoveAt($index)
+            if ($index -ge 0 -and $index -lt $listFiles.Items.Count) {
+                $fileToRemove = $listFiles.Items[$index]
+                if ($fileToRemove) {
+                    $script:SelectedFiles = $script:SelectedFiles | Where-Object { $_ -ne $fileToRemove }
+                    $listFiles.Items.RemoveAt($index)
+                }
+            }
         }
     })
     
     $btnClearAll.Add_Click({
-        $script:SelectedFiles = @()
-        $listFiles.Items.Clear()
-        $txtOutput.Text = ""
+        try {
+            $script:SelectedFiles = @()
+            $listFiles.Items.Clear()
+            $txtOutput.Text = ""
+        }
+        catch {
+            # Fallback if clearing fails
+            $script:SelectedFiles = @()
+            Write-Host "Warning: Could not clear all items properly" -ForegroundColor Yellow
+        }
     })
     
     $btnBrowseOutput.Add_Click({
@@ -367,7 +402,9 @@ function New-MainForm {
         $saveFileDialog.DefaultExt = "7z"
         
         if ($saveFileDialog.ShowDialog() -eq "OK") {
-            $txtOutput.Text = $saveFileDialog.FileName
+            if ($saveFileDialog.FileName) {
+                $txtOutput.Text = $saveFileDialog.FileName
+            }
         }
     })
     
@@ -377,16 +414,16 @@ function New-MainForm {
             return
         }
         
-        if (-not $txtOutput.Text) {
+        if (-not $txtOutput.Text -or $txtOutput.Text.Trim() -eq "") {
             [System.Windows.Forms.MessageBox]::Show("Please specify an output file path.", "No Output Path", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
             return
         }
         
         # Check encryption settings
         $useEncryption = $chkEncryption.Checked
-        $password = $txtPassword.Text
+        $password = if ($txtPassword.Text) { $txtPassword.Text } else { "" }
         
-        if ($useEncryption -and -not $password) {
+        if ($useEncryption -and ($password -eq "" -or $password -eq $null)) {
             [System.Windows.Forms.MessageBox]::Show("Please enter a password for encryption.", "No Password", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
             return
         }
@@ -405,19 +442,19 @@ function New-MainForm {
             return
         }
         
-        $outputPath = $txtOutput.Text
+        $outputPath = $txtOutput.Text.Trim()
         $compressionLevel = [int]$numCompression.Value
         
         # Create output directory if it doesn't exist
-        $outputDir = [System.IO.Path]::GetDirectoryName($outputPath)
-        if (-not (Test-Path $outputDir)) {
-            try {
+        try {
+            $outputDir = [System.IO.Path]::GetDirectoryName($outputPath)
+            if ($outputDir -and (-not (Test-Path $outputDir))) {
                 New-Item -Path $outputDir -ItemType Directory -Force | Out-Null
             }
-            catch {
-                [System.Windows.Forms.MessageBox]::Show("Failed to create output directory: $($_.Exception.Message)", "Directory Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
-                return
-            }
+        }
+        catch {
+            [System.Windows.Forms.MessageBox]::Show("Failed to create output directory: $($_.Exception.Message)", "Directory Error", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error)
+            return
         }
         
         # Disable the compress button during operation
@@ -438,13 +475,19 @@ function New-MainForm {
                 # Ask if user wants to open the output folder
                 $result = [System.Windows.Forms.MessageBox]::Show("Would you like to open the output folder?", "Open Folder", [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
                 if ($result -eq "Yes") {
-                    if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
-                        Start-Process "explorer.exe" "/select,`"$outputPath`""
-                    } elseif ($IsMacOS) {
-                        Start-Process "open" "-R `"$outputPath`""
-                    } else {
-                        # Linux
-                        Start-Process "xdg-open" "`"$outputDir`""
+                    try {
+                        if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
+                            Start-Process "explorer.exe" "/select,`"$outputPath`""
+                        } elseif ($IsMacOS) {
+                            Start-Process "open" "-R `"$outputPath`""
+                        } else {
+                            # Linux
+                            $outputDir = [System.IO.Path]::GetDirectoryName($outputPath)
+                            Start-Process "xdg-open" "`"$outputDir`""
+                        }
+                    }
+                    catch {
+                        [System.Windows.Forms.MessageBox]::Show("Could not open output folder: $($_.Exception.Message)", "Warning", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
                     }
                 }
             } else {
@@ -465,8 +508,8 @@ function New-MainForm {
     })
     
     # Set initial output path if provided via parameter
-    if ($OutputPath) {
-        $txtOutput.Text = $OutputPath
+    if ($OutputPath -and $OutputPath.Trim() -ne "") {
+        $txtOutput.Text = $OutputPath.Trim()
     }
     
     # Add controls to form
