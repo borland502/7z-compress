@@ -436,24 +436,36 @@ function New-MainForm {
                     }
                     
                     # Auto-generate output filename if not set
-                    if (($null -eq $txtOutput.Text -or $txtOutput.Text.Trim() -eq "") -and $script:SelectedFiles.Count -gt 0) {
+                    if ($script:SelectedFiles.Count -gt 0) {
                         try {
-                            $firstFile = $script:SelectedFiles[0]
-                            if ($null -ne $firstFile -and (Test-Path $firstFile)) {
-                                $directory = [System.IO.Path]::GetDirectoryName($firstFile)
-                                $baseName = [System.IO.Path]::GetFileNameWithoutExtension($firstFile)
+                            # Check if txtOutput control is accessible and its Text property is empty
+                            if ($null -ne $txtOutput -and 
+                                $null -ne $txtOutput.Text -and 
+                                $txtOutput.Text.Trim() -eq "") {
                                 
-                                if ($null -eq $baseName -or $baseName.Trim() -eq "") {
-                                    $baseName = "archive"
-                                }
-                                
-                                if ($script:SelectedFiles.Count -gt 1) {
-                                    $baseName = "archive"
-                                }
-                                
-                                if ($null -ne $directory -and $directory.Trim() -ne "") {
-                                    $suggestedName = Join-Path $directory "$baseName.7z"
-                                    $txtOutput.Text = $suggestedName
+                                $firstFile = $script:SelectedFiles[0]
+                                if ($null -ne $firstFile -and (Test-Path $firstFile)) {
+                                    $directory = [System.IO.Path]::GetDirectoryName($firstFile)
+                                    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($firstFile)
+                                    
+                                    if ($null -eq $baseName -or $baseName.Trim() -eq "") {
+                                        $baseName = "archive"
+                                    }
+                                    
+                                    if ($script:SelectedFiles.Count -gt 1) {
+                                        $baseName = "archive"
+                                    }
+                                    
+                                    if ($null -ne $directory -and $directory.Trim() -ne "") {
+                                        $suggestedName = Join-Path $directory "$baseName.7z"
+                                        try {
+                                            $txtOutput.Text = $suggestedName
+                                        }
+                                        catch {
+                                            # If setting the text fails, ignore silently
+                                            Write-Host "Note: Could not set auto-generated filename" -ForegroundColor Gray
+                                        }
+                                    }
                                 }
                             }
                         }

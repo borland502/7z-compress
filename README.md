@@ -185,12 +185,13 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 #### GUI Crashes or Null Reference Errors (Windows)
 - **Solution**: Updated script includes improved error handling and null checks
+- **Status**: ✅ **RESOLVED** - Fixed null reference errors in file selection and output path generation
 - **Workaround**: Use command-line mode if GUI continues to have issues
 - **Alternative**: Run with `-ErrorAction SilentlyContinue` parameter
 
 #### Command-Line Mode Hangs (Linux/macOS)
-- **Issue**: Some Linux systems have issues with PowerShell interactive input
 - **Solution**: Use command-line parameters instead of interactive mode
+- **Status**: ✅ **RESOLVED** - Fixed hanging issues with cross-platform input handling
 - **Workaround**: Pre-specify files and options via parameters
 
 **Linux/macOS Examples:**
