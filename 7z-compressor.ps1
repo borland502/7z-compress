@@ -50,6 +50,9 @@ $script:EncryptionEnabled = if ($EnableEncryption) { $true } else { $false }
 $script:EncryptionPassword = if ($EncryptionKey) { $EncryptionKey } else { "" }
 $script:ListFilesControl = $null
 $script:OutputTextControl = $null
+$script:PasswordLabelControl = $null
+$script:PasswordTextControl = $null
+$script:ShowPasswordButtonControl = $null
 
 # Function to safely read user input (cross-platform compatible)
 function Read-UserInput {
@@ -377,6 +380,11 @@ function New-MainForm {
     $btnShowPassword.Size = New-Object System.Drawing.Size(50, 27)
     $btnShowPassword.Enabled = $script:EncryptionEnabled
     
+    # Store password control references in script scope for event handlers
+    $script:PasswordLabelControl = $lblPassword
+    $script:PasswordTextControl = $txtPassword
+    $script:ShowPasswordButtonControl = $btnShowPassword
+    
     $btnCompress = New-Object System.Windows.Forms.Button
     $btnCompress.Text = "Create 7z Archive"
     $btnCompress.Location = New-Object System.Drawing.Point(400, 435)
@@ -391,23 +399,45 @@ function New-MainForm {
     
     # Event handlers
     $chkEncryption.Add_CheckedChanged({
-        $isEnabled = $chkEncryption.Checked
-        $lblPassword.Enabled = $isEnabled
-        $txtPassword.Enabled = $isEnabled
-        $btnShowPassword.Enabled = $isEnabled
-        
-        if (-not $isEnabled) {
-            $txtPassword.Text = ""
+        try {
+            $isEnabled = $chkEncryption.Checked
+            
+            # Use script-scope control references
+            if ($null -ne $script:PasswordLabelControl) {
+                $script:PasswordLabelControl.Enabled = $isEnabled
+            }
+            if ($null -ne $script:PasswordTextControl) {
+                $script:PasswordTextControl.Enabled = $isEnabled
+            }
+            if ($null -ne $script:ShowPasswordButtonControl) {
+                $script:ShowPasswordButtonControl.Enabled = $isEnabled
+            }
+            
+            if (-not $isEnabled -and $null -ne $script:PasswordTextControl) {
+                $script:PasswordTextControl.Text = ""
+            }
+        }
+        catch {
+            # Ignore encryption toggle errors
+            Write-Host "Warning: Could not update encryption controls: $($_.Exception.Message)" -ForegroundColor Yellow
         }
     })
     
     $btnShowPassword.Add_Click({
-        if ($txtPassword.UseSystemPasswordChar) {
-            $txtPassword.UseSystemPasswordChar = $false
-            $btnShowPassword.Text = "Hide"
-        } else {
-            $txtPassword.UseSystemPasswordChar = $true
-            $btnShowPassword.Text = "Show"
+        try {
+            if ($null -ne $script:PasswordTextControl -and $null -ne $script:ShowPasswordButtonControl) {
+                if ($script:PasswordTextControl.UseSystemPasswordChar) {
+                    $script:PasswordTextControl.UseSystemPasswordChar = $false
+                    $script:ShowPasswordButtonControl.Text = "Hide"
+                } else {
+                    $script:PasswordTextControl.UseSystemPasswordChar = $true
+                    $script:ShowPasswordButtonControl.Text = "Show"
+                }
+            }
+        }
+        catch {
+            # Ignore password show/hide errors
+            Write-Host "Warning: Could not toggle password visibility: $($_.Exception.Message)" -ForegroundColor Yellow
         }
     })
     
